@@ -7,18 +7,20 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"time"
 )
 
 func main() {
 	for {
-		fmt.Print("[1] for data refresh\n[2] for filtering\n[3] for exit\n")
+		fmt.Print("[1] for data refresh\n[2] for filtering\n[3] for exit\n[4] for filter setting\n")
 		var command string
 		fmt.Scan(&command)
 		switch command {
 		case "1":
 			refresh_pull()
 		case "2":
+			cfg := load_config()
 			firstPoll, _ := read_cache("firstPoll.json")
 			secondPoll, _ := read_cache("secondPoll.json")
 			firstMap := make(map[string]bzItem)
@@ -31,44 +33,147 @@ func main() {
 				if !ok {
 					continue
 				}
-				if item.BuyPrice-item.SellPrice < 500 {
+				if item.BuyPrice-item.SellPrice < cfg.MinMargin {
 					continue
 				}
 				avgBuyVolume := (first.BuyVolume + item.BuyVolume) / 2
 				avgSellVolume := (first.SellVolume + item.SellVolume) / 2
-				if avgBuyVolume < 50000 || avgSellVolume < 50000 {
+				if avgBuyVolume < cfg.MinBuyVolume || avgSellVolume < cfg.MinSellVolume {
 					continue
 				}
-				if item.BuyPrice > 3000000 {
+				if item.BuyPrice > cfg.MaxPrice {
 					continue
 				}
 				margin := item.BuyPrice - item.SellPrice
 				marginPercent := (margin / item.BuyPrice) * 100
-				if marginPercent < 10 {
+				if marginPercent < cfg.MinMarginPercent {
 					continue
 				}
-				item.Delta = (item.BuyTrans + item.SellTrans) - (first.BuyTrans + first.SellTrans)
+				item.BuyDelta = item.BuyTrans - first.BuyTrans
+				item.SellDelta = item.SellTrans - first.SellTrans
+				item.Delta = item.BuyDelta + item.SellDelta
+				if item.BuyDelta < cfg.MinBuyDelta || item.SellDelta < cfg.MinSellDelta {
+					continue
+				}
 				if item.Delta <= 0 {
 					continue
 				}
+				item.Margin = margin
+				item.MarginPercent = marginPercent
 				candidates = append(candidates, item)
 			}
 			slices.SortFunc(candidates, func(a, b bzItem) int {
-				if b.Delta > a.Delta {
-					return 1
+				switch cfg.SortFrom {
+				case "margin":
+					if b.Margin > a.Margin {
+						return 1
+					}
+					if b.Margin < a.Margin {
+						return -1
+					}
+					return 0
+				case "margin%":
+					if b.MarginPercent > a.MarginPercent {
+						return 1
+					}
+					if b.MarginPercent < a.MarginPercent {
+						return -1
+					}
+					return 0
+				case "buy_price":
+					if b.BuyPrice > a.BuyPrice {
+						return 1
+					}
+					if b.BuyPrice < a.BuyPrice {
+						return -1
+					}
+					return 0
+				default:
+					if b.Delta > a.Delta {
+						return 1
+					}
+					if b.Delta < a.Delta {
+						return -1
+					}
+					return 0
 				}
-				if b.Delta < a.Delta {
-					return -1
-				}
-				return 0
 			})
-			for _, item := range candidates {
-				margin := item.BuyPrice - item.SellPrice
-				marginPercent := (margin / item.BuyPrice) * 100
-				fmt.Printf("%s — margin: %.0f (%.1f%%) — 60 second item flow: %d\n", item.Name, margin, marginPercent, item.Delta)
+			if len(candidates) != 0 {
+				for _, item := range candidates {
+					fmt.Printf("%s — margin: %.0f (%.1f%%) — buy flow: %d sell flow: %d\n", item.Name, item.Margin, item.MarginPercent, item.BuyDelta, item.SellDelta)
+				}
+			} else {
+				fmt.Println("NO MATCHING ITEM")
 			}
 		case "3":
 			os.Exit(0)
+		case "4":
+			cfg := load_config()
+			fmt.Println("input a value or 'skip' to keep current")
+			var input string
+
+			fmt.Printf("minimum margin? (current: %.0f) ", cfg.MinMargin)
+			fmt.Scan(&input)
+			if input != "skip" {
+				if val, err := strconv.ParseFloat(input, 64); err == nil {
+					cfg.MinMargin = val
+				}
+			}
+
+			fmt.Printf("minimum buy volume? (current: %d) ", cfg.MinBuyVolume)
+			fmt.Scan(&input)
+			if input != "skip" {
+				if val, err := strconv.Atoi(input); err == nil {
+					cfg.MinBuyVolume = val
+				}
+			}
+
+			fmt.Printf("minimum sell volume? (current: %d) ", cfg.MinSellVolume)
+			fmt.Scan(&input)
+			if input != "skip" {
+				if val, err := strconv.Atoi(input); err == nil {
+					cfg.MinSellVolume = val
+				}
+			}
+
+			fmt.Printf("minimum buy 60 second amount (current %d) ", cfg.MinBuyDelta)
+			fmt.Scan(&input)
+			if input != "skip" {
+				if val, err := strconv.Atoi(input); err == nil {
+					cfg.MinBuyDelta = val
+				}
+			}
+			fmt.Printf("minimum sell 60 second amount (current %d) ", cfg.MinSellDelta)
+			fmt.Scan(&input)
+			if input != "skip" {
+				if val, err := strconv.Atoi(input); err == nil {
+					cfg.MinSellDelta = val
+				}
+			}
+			fmt.Printf("max price? (current: %.0f) ", cfg.MaxPrice)
+			fmt.Scan(&input)
+			if input != "skip" {
+				if val, err := strconv.ParseFloat(input, 64); err == nil {
+					cfg.MaxPrice = val
+				}
+			}
+
+			fmt.Printf("minimum margin%%? (current: %.0f) ", cfg.MinMarginPercent)
+			fmt.Scan(&input)
+			if input != "skip" {
+				if val, err := strconv.ParseFloat(input, 64); err == nil {
+					cfg.MinMarginPercent = val
+				}
+			}
+
+			fmt.Printf("sort from [moving item/margin/margin%%/buy_price]? (current: %s) ", cfg.SortFrom)
+			fmt.Scan(&input)
+			if input != "skip" {
+				cfg.SortFrom = input
+			}
+
+			save_config(cfg)
+			fmt.Println("config saved!")
 		default:
 			fmt.Println("Not a valid option")
 		}
@@ -107,6 +212,41 @@ func fetchItems() ([]byte, error) {
 	return body, err
 }
 
+type filterConfig struct {
+	MinMargin        float64 `json:"min_margin"`
+	MinBuyVolume     int     `json:"min_buy_volume"`
+	MinSellVolume    int     `json:"min_sell_volume"`
+	MinBuyDelta         int     `json:"min_buy_delta"`
+	MinSellDelta         int     `json:"min_sell_delta"`
+	MaxPrice         float64 `json:"max_price"`
+	MinMarginPercent float64 `json:"min_margin_percent"`
+	SortFrom         string  `json:"sort_from"`
+}
+
+func load_config() filterConfig {
+	data, err := os.ReadFile("config.json")
+	if err != nil {
+		return filterConfig{
+			MinMargin:        500,
+			MinBuyVolume:     50000,
+			MinSellVolume:    50000,
+			MinBuyDelta:         150,
+			MinSellDelta:         150,
+			MaxPrice:         3000000,
+			MinMarginPercent: 10,
+			SortFrom:         "moving item",
+		}
+	}
+	var cfg filterConfig
+	json.Unmarshal(data, &cfg)
+	return cfg
+}
+
+func save_config(cfg filterConfig) {
+	data, _ := json.Marshal(cfg)
+	os.WriteFile("config.json", data, 0644)
+}
+
 func store_cache(filename string, data []byte) {
 	os.WriteFile(filename, data, 0644)
 }
@@ -122,15 +262,19 @@ func read_cache(filename string) ([]bzItem, error) {
 }
 
 type bzItem struct {
-	Name       string  `json:"name"`
-	Id         string  `json:"id"`
-	BuyPrice   float64 `json:"buy_price"`
-	SellPrice  float64 `json:"sell_price"`
-	BuyVolume  int     `json:"buy_volume"`
-	SellVolume int     `json:"sell_volume"`
-	BuyTrans   int     `json:"buy_trans"`
-	SellTrans  int     `json:"sell_trans"`
-	Icon       string  `json:"icon"`
-	Visits     int     `json:"visits"`
-	Delta      int
+	Name          string  `json:"name"`
+	Id            string  `json:"id"`
+	BuyPrice      float64 `json:"buy_price"`
+	SellPrice     float64 `json:"sell_price"`
+	BuyVolume     int     `json:"buy_volume"`
+	SellVolume    int     `json:"sell_volume"`
+	BuyTrans      int     `json:"buy_trans"`
+	SellTrans     int     `json:"sell_trans"`
+	Icon          string  `json:"icon"`
+	Visits        int     `json:"visits"`
+	Delta         int
+	BuyDelta  int
+	SellDelta int
+	Margin        float64
+	MarginPercent float64
 }
