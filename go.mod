@@ -1,4 +1,4 @@
-module 1
+module LiamWJH/bzfilter-cli
 
 go 1.26
 
