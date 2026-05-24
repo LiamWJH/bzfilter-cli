@@ -11,18 +11,56 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"math/rand/v2"
 )
 
 func main() {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print("[0] for item search\n[1] for data refresh\n[2] for filtering\n[3] for exit\n[4] for filter setting\n")
+		fmt.Print("[-1] for random item\n[0] for item search\n[1] for data refresh\n[2] for filtering\n[3] for exit\n[4] for filter setting\n")
 		var command string
 		command, _ = reader.ReadString('\n')
 		command = strings.TrimSpace(command)
 
 		cfg := load_config()
 		switch command {
+		case "-1" :
+			firstPoll, _ := read_cache("firstPoll.json")
+			secondPoll, _ := read_cache("secondPoll.json")
+			firstMap := make(map[string]bzItem)
+			for _, item := range firstPoll {
+				firstMap[item.Id] = item
+			}
+			keys := make([]string, 0, len(firstMap))
+
+			for k := range firstMap {
+				keys = append(keys, k)
+			}
+			itemName := keys[rand.IntN(len(keys))]
+			var found *bzItem
+			for i, item := range secondPoll {
+				if item.Name == itemName || item.Id == itemName {
+					first, ok := firstMap[item.Id]
+					if ok {
+						secondPoll[i].BuyDelta = item.BuyTrans - first.BuyTrans
+						secondPoll[i].SellDelta = item.SellTrans - first.SellTrans
+						secondPoll[i].Delta = secondPoll[i].BuyDelta + secondPoll[i].SellDelta
+						secondPoll[i].Margin = item.BuyPrice - item.SellPrice
+						secondPoll[i].MarginPercent = (secondPoll[i].Margin / item.BuyPrice) * 100
+					}
+					found = &secondPoll[i]
+					break
+				}
+			}
+			if found == nil {
+				fmt.Println("Item not found")
+			} else {
+				fmt.Printf("Item: %s\nprice: %.0f\nmargin: %.0f\nmargin%%: %.1f\nbuy volume: %d\nsell volume: %d\nbuy delta: %d\nsell delta: %d\ndelta: %d\n",
+					found.Name, found.BuyPrice, found.Margin, found.MarginPercent,
+					found.BuyVolume, found.SellVolume,
+					found.BuyDelta, found.SellDelta, found.Delta,
+				)
+			}
 		case "0":
 			fmt.Printf("Search: ")
 			itemName, _ := reader.ReadString('\n')
