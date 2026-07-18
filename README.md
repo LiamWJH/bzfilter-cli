@@ -8,6 +8,7 @@ This is a CLI for identifying which item in the market is a efficient, profitabl
 3. diverse filters such as minimum profit % per, minimum profit $, minimum supply/demand, speed of supply/demand fills, maximum cost and etc
 4. editable time between API info polling for accurate average of values
 5. basic caching of item infos in a file
+6. Search feature that lets you search item info
 
 # Notes
 ## Do you even gain profit?
